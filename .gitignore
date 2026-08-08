@@ -1,0 +1,93 @@
+# =============== 
+# Keil MDK-ARM Generated Files
+# =============== 
+
+# Compiled Object Files
+*.o
+*.obj
+*.crf
+*.d
+
+# Linker Output
+*.axf
+*.elf
+*.map
+*.htm
+*.lnp
+*.dep
+*.build_log.htm
+
+# Firmware Output (uncomment below if you want to track binary releases)
+# *.hex
+# *.bin
+
+# =============== 
+# Keil Project User-Specific Files
+# =============== 
+
+# User-specific project settings (GUI layout, window positions, etc.)
+*.uvguix.*
+*.uvoptx
+
+# Keil Debug Configuration (user-specific)
+# DebugConfig/
+
+# =============== 
+# Keil Build Output Directories
+# =============== 
+
+# Instead of excluding the entire build folder which prevents re-including files,
+# exclude specific build artifact file types.
+MDK-ARM/*/*.o
+MDK-ARM/*/*.obj
+MDK-ARM/*/*.crf
+MDK-ARM/*/*.d
+MDK-ARM/*/*.axf
+MDK-ARM/*/*.elf
+MDK-ARM/*/*.map
+MDK-ARM/*/*.htm
+MDK-ARM/*/*.lnp
+MDK-ARM/*/*.dep
+MDK-ARM/*/*.build_log.htm
+MDK-ARM/*/*.hex
+MDK-ARM/*/*.bin
+MDK-ARM/*.lst
+
+# Keep RTE components
+!MDK-ARM/RTE/_*/RTE_Components.h
+
+# =============== 
+# IDE / Editor Files
+# =============== 
+
+# VSCode
+.vscode/
+*.log
+*.log.lock
+
+# WorkBuddy / Trae Workspace
+.workbuddy/
+
+# Eclipse / other editors
+.idea/
+*.swp
+*.swo
+*~
+
+# =============== 
+# STM32CubeMX
+# =============== 
+
+# STM32CubeMX backup and generated temp files
+*.ioc.bak
+*.mxproject.bak
+
+# =============== 
+# Windows System Files
+# =============== 
+
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
