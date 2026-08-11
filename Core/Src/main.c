@@ -72,6 +72,115 @@ void SystemClock_Config(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+/* ---- 极简 I2C bit-bang：关 EM7028 心率传感器 LED ----
+ * 冷启动长按 KEY1 进 BootLoader 时，EM7028 的 HRS_CFG 可能还保留 APP 设的 0x08（LED 开），
+ * BootLoader 不操作它就会一直亮。这里直接用 GPIO PB13(SDA)/PB14(SCL) 模拟 I2C，
+ * 写 SOFT_RESET(0x0F) 寄存器复位 EM7028，LED 自然关闭。
+ * 不引入完整 iic_hal.c，只做这一次写操作。
+ */
+#define EM7028_SDA_PIN  GPIO_PIN_13
+#define EM7028_SCL_PIN  GPIO_PIN_14
+#define EM7028_SDA_PORT GPIOB
+#define EM7028_SCL_PORT GPIOB
+#define EM7028_I2C_ADDR 0x24   /* 7-bit addr, 左移后 0x48 */
+#define EM7028_REG_SOFT_RESET 0x0F
+
+static void em7028_sda_out(void)
+{
+    GPIO_InitTypeDef g = {0};
+    g.Pin = EM7028_SDA_PIN;
+    g.Mode = GPIO_MODE_OUTPUT_OD;
+    g.Pull = GPIO_NOPULL;
+    g.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(EM7028_SDA_PORT, &g);
+}
+static void em7028_sda_in(void)
+{
+    GPIO_InitTypeDef g = {0};
+    g.Pin = EM7028_SDA_PIN;
+    g.Mode = GPIO_MODE_INPUT;
+    g.Pull = GPIO_PULLUP;
+    g.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(EM7028_SDA_PORT, &g);
+}
+static void em7028_sda(uint8_t v) { HAL_GPIO_WritePin(EM7028_SDA_PORT, EM7028_SDA_PIN, v ? GPIO_PIN_SET : GPIO_PIN_RESET); }
+static void em7028_scl(uint8_t v) { HAL_GPIO_WritePin(EM7028_SCL_PORT, EM7028_SCL_PIN, v ? GPIO_PIN_SET : GPIO_PIN_RESET); }
+static uint8_t em7028_sda_read(void) { return HAL_GPIO_ReadPin(EM7028_SDA_PORT, EM7028_SDA_PIN) == GPIO_PIN_SET ? 1 : 0; }
+
+static void em7028_i2c_start(void)
+{
+    em7028_sda_out();
+    em7028_sda(1); delay_us(2);
+    em7028_scl(1); delay_us(2);
+    em7028_sda(0); delay_us(2);
+    em7028_scl(0); delay_us(2);
+}
+static void em7028_i2c_stop(void)
+{
+    em7028_sda_out();
+    em7028_scl(0); delay_us(2);
+    em7028_sda(0); delay_us(2);
+    em7028_scl(1); delay_us(2);
+    em7028_sda(1); delay_us(2);
+}
+static void em7028_i2c_send_byte(uint8_t b)
+{
+    em7028_sda_out();
+    for (int i = 0; i < 8; i++) {
+        em7028_scl(0); delay_us(2);
+        em7028_sda(b & 0x80); delay_us(2);
+        b <<= 1;
+        em7028_scl(1); delay_us(2);
+    }
+    em7028_scl(0); delay_us(2);
+}
+static uint8_t em7028_i2c_wait_ack(void)
+{
+    uint8_t retry = 10;
+    em7028_sda_in();
+    em7028_scl(1); delay_us(2);
+    while (em7028_sda_read()) {
+        if (--retry == 0) { em7028_sda_out(); em7028_i2c_stop(); return 1; }
+        delay_us(2);
+    }
+    em7028_sda_out();
+    em7028_scl(0); delay_us(2);
+    return 0;
+}
+
+static void EM7028_Disable_LED(void)
+{
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    /* 先把 SCL 配成推挽输出 */
+    {
+        GPIO_InitTypeDef g = {0};
+        g.Pin = EM7028_SCL_PIN;
+        g.Mode = GPIO_MODE_OUTPUT_PP;
+        g.Pull = GPIO_PULLUP;
+        g.Speed = GPIO_SPEED_FREQ_HIGH;
+        HAL_GPIO_Init(EM7028_SCL_PORT, &g);
+    }
+    /* 方案1：直接写 HRS_CFG=0x00 关 LED */
+    em7028_i2c_start();
+    em7028_i2c_send_byte(EM7028_I2C_ADDR << 1);
+    if (em7028_i2c_wait_ack()) { em7028_i2c_stop(); return; }  /* 无应答，EM7028 可能没焊接/不在线 */
+    em7028_i2c_send_byte(0x01);   /* HRS_CFG */
+    em7028_i2c_wait_ack();
+    em7028_i2c_send_byte(0x00);   /* 关 LED */
+    em7028_i2c_wait_ack();
+    em7028_i2c_stop();
+    delay_us(10);
+    /* 方案2保险：写 SOFT_RESET 寄存器复位 */
+    em7028_i2c_start();
+    em7028_i2c_send_byte(EM7028_I2C_ADDR << 1);
+    if (em7028_i2c_wait_ack()) { em7028_i2c_stop(); return; }
+    em7028_i2c_send_byte(EM7028_REG_SOFT_RESET);
+    em7028_i2c_wait_ack();
+    em7028_i2c_send_byte(0x00);
+    em7028_i2c_wait_ack();
+    em7028_i2c_stop();
+}
+
 static void JumpToApp(void)
 {
   printf("Jump to app\r\n");
@@ -131,6 +240,9 @@ int main(void)
 
 	//sys delay
 	delay_init();
+
+  // 关闭 EM7028 心率传感器 LED（APP 跑过开过，冷启动进 BootLoader 后仍亮）
+  EM7028_Disable_LED();
 
   //key
 	Key_Port_Init();

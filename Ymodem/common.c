@@ -190,6 +190,18 @@ uint32_t GetIntegerInput(int32_t * num)
   */
 uint32_t SerialKeyPressed(uint8_t *key)
 {
+  /* 先清 UART 错误标志（ORE/FE/PE/NE）——小程序 BLE 连续传输或断连灌字节时会触发 ORE，
+   * ORE 置位后 RXNE 再也不会被新字节置 1，导致 GetKey() 死循环。
+   * STM32F4 参考手册：ORE 清零序列 = 读 SR + 读 DR
+   */
+  if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_ORE | UART_FLAG_FE | UART_FLAG_PE | UART_FLAG_NE) != RESET)
+  {
+    volatile uint32_t dummy;
+    dummy = huart1.Instance->SR;
+    dummy = huart1.Instance->DR;
+    (void)dummy;
+  }
+
   if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_RXNE) != RESET)
   {
     *key = (uint16_t)((&huart1)->Instance->DR & (uint16_t)0x01FF);	  

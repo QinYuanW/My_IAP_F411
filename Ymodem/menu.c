@@ -35,6 +35,7 @@
 #include "menu.h"
 #include "ymodem.h"
 #include "delay.h"
+#include "KT6328.h"
 
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
@@ -62,31 +63,73 @@ void SerialUpload(void);
   */
 void Execute_New_Program(void)
 {
+  const uint32_t app_sp = *(__IO uint32_t*)APPLICATION_ADDRESS;
+  const uint32_t app_pc = *(__IO uint32_t*)(APPLICATION_ADDRESS + 4);
+
+  /* ---- 检查是否合法（合法范围 0x20000000 ~ 0x20020000 / 0x08000000+） ---- */
+  /*   不合法直接打印 ERR + 返回，不做死循环跳转  */
+  if (((app_sp & 0xFFFE0000U) != 0x20000000U) || (app_sp == 0xFFFFFFFFU) ||
+      ((app_pc & 0xFFFC0000U) != 0x08000000U) || (app_pc == 0xFFFFFFFFU)) {
+    SerialPutString("[Jump] ERR: SP/PC invalid\r\n");
+    return;
+  }
+
+  /* ============================================================
+   * 方案：【关闭 BLE + 直接跳转 APP】
+   *
+   * 冷启动 KEY1 进 BootLoader 后按 3，也是在这里跳进 APP。
+   * 之前用 NVIC_SystemReset() 软复位在这块板上表现为黑屏（软复位瞬间
+   * PA3 电源锁存被释放，PMIC 可能直接断电，或复位后 LCD/外设状态异常）。
+   * APP V3.6.0 的 BootLoaderJumpedPeriphCleanup() 在 main() 最前面
+   * 专门清理 BootLoader 跳转留下的 USART/SPI/DMA/NVIC 脏状态，
+   * 所以这里恢复 SecureCRT 时代可用的“直接跳转”，并额外把 KT6368A
+   * 关掉再跳，APP 启动窗口不会再有 BLE 字节。
+   * ============================================================ */
+
+  // 1) 关 BLE 模块（PA8 拉低）
+  KT6328_Disable();
+  delay_ms(200);
+
+  // 2) 清 UART 错误标志 + 排干 RX FIFO（防止 BootLoader 复位后仍有残留字节）
+  {
+    volatile uint32_t dummy;
+    int j;
+    for (j = 0; j < 64; j++) {
+      dummy = USART1->SR;
+      if ((dummy & (USART_SR_RXNE | USART_SR_ORE | USART_SR_FE | USART_SR_NE | USART_SR_PE)) == 0U) break;
+      dummy = USART1->DR;
+      (void)dummy;
+    }
+  }
+
+  // 3) 关闭所有中断、关 SysTick、同步
+  __disable_irq();
   SysTick->CTRL = 0X00;
   SysTick->LOAD = 0;
   SysTick->VAL = 0;
-  __disable_irq();
+  __DSB();
+  __ISB();
 
-  /* 清掉中断挂起位，让新 App 从干净的中断状态启动 */
+  // 4) 清中断挂起位 + Flash 指令/数据缓存，保证新 APP 从干净状态启动
   NVIC->ICPR[0] = 0xFFFFFFFFU;
   NVIC->ICPR[1] = 0xFFFFFFFFU;
   SCB->ICSR = SCB_ICSR_PENDSTCLR_Msk;
-
-  /* 热跳转时清 Flash 指令/数据缓存，确保执行刚写入的新固件 */
   FLASH->ACR |= (FLASH_ACR_ICRST | FLASH_ACR_DCRST);
   FLASH->ACR &= ~(FLASH_ACR_ICRST | FLASH_ACR_DCRST);
   __DSB();
   __ISB();
-
-  /* 热跳转时清 CONTROL/PSP，确保新 App 用 MSP 而非旧 FreeRTOS 的 PSP */
   __set_CONTROL(0U);
   __ISB();
   __set_PSP(0U);
 
+  // 5) 直接跳转 APP（APP 入口的 BootLoaderJumpedPeriphCleanup 会清理外设）
   JumpAddress = *(__IO uint32_t*) (APPLICATION_ADDRESS + 4);
   Jump_To_Application = (pFunction) JumpAddress;
-  __set_MSP(*(__IO uint32_t*) APPLICATION_ADDRESS);
+  __set_MSP(app_sp);
   Jump_To_Application();
+
+  /* 永远不会执行到这里 */
+  while (1) {}
 }
 
 /**
@@ -196,7 +239,7 @@ void Main_Menu(void)
   Serial_Flush_RX();
 
   SerialPutString("\r\n======================================================================");
-  SerialPutString("\r\n=              (C) COPYRIGHT 2011 STMicroelectronics                 =");
+  SerialPutString("\r\n=              (C) COPYRIGHT 2026 STMicroelectronics                 =");
   SerialPutString("\r\n=                                                                    =");
   SerialPutString("\r\n=  STM32F4xx In-Application Programming Application  (Version 1.0.0) =");
   SerialPutString("\r\n=                                                                    =");
