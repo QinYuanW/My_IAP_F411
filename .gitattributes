@@ -11,3 +11,6 @@ MDK-ARM/output/** -text
 *.h   text eol=crlf
 *.cpp text eol=crlf
 *.hpp text eol=crlf
+
+# 规则文件自身保持 LF
+.gitattributes text eol=lf
