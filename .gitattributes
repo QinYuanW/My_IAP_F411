@@ -1,0 +1,13 @@
+# 换行符策略 —— 与 My_Watch 保持一致（Keil / Windows 主导的 MCU 工程用 CRLF）
+
+# Keil 用户配置与编译产物：视为非文本，避免换行符警告
+*.uvguix.* -text
+*.uvoptx   -text
+*.uvmpw    -text
+MDK-ARM/output/** -text
+
+# 源码：统一在检出时使用 CRLF
+*.c   text eol=crlf
+*.h   text eol=crlf
+*.cpp text eol=crlf
+*.hpp text eol=crlf
